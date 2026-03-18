@@ -6,7 +6,19 @@
 #include <atomic>
 #include <vector>
 #include <grpcpp/grpcpp.h>
+#include <fstream>
 #include "kv.grpc.pb.h"
+
+std::string ReadFile(const std::string &filename) {
+  std::ifstream ifs(filename);
+  if (!ifs.is_open()) {
+    std::cerr << "CRITICAL ERROR: Failed to open " << filename 
+              << ". Make sure server.crt is in the current directory." << std::endl;
+    exit(1);
+  }
+  return std::string((std::istreambuf_iterator<char>(ifs)),
+                     std::istreambuf_iterator<char>());
+}
 
 int main(int argc, char **argv) {
   if (argc < 2) {
@@ -29,15 +41,20 @@ int main(int argc, char **argv) {
                     "QtMSIsImlzcyI6ImVzY3Jvdy1zdGFjayJ9.6rSg25u53rD-D"
                     "Jk0gM62V79rL8O110c9hZ2672I2_E0";
 
-  // === Create Stub Pool ===
+  // === Create Stub Pool with SSL ===
   int stub_count = 64; 
   std::vector<std::unique_ptr<kv::KVService::Stub>> stub_pool;
+
+  grpc::SslCredentialsOptions ssl_opts;
+  ssl_opts.pem_root_certs = ReadFile("server.crt");
+
   for(int i = 0; i < stub_count; i++) {
       grpc::ChannelArguments pool_args;
       pool_args.SetLoadBalancingPolicyName("round_robin");
+      pool_args.SetSslTargetNameOverride("localhost");
       pool_args.SetInt("grpc.channel_id", i);
       
-      auto chan = grpc::CreateCustomChannel(target, grpc::InsecureChannelCredentials(), pool_args);
+      auto chan = grpc::CreateCustomChannel("ipv4:" + target, grpc::SslCredentials(ssl_opts), pool_args);
       stub_pool.push_back(kv::KVService::NewStub(chan));
   }
 
